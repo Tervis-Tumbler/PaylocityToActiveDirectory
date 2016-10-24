@@ -1,13 +1,11 @@
-﻿#Requires -Modules PowerShellApplication, TervisMailMessage
+﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell
 
 function Install-PaylocityToActiveDirectory {
     param (
-        $PathToScriptForScheduledTask = $PSScriptRoot        
+        $PathToScriptForScheduledTask = $PSScriptRoot,
+        [Parameter(Mandatory)]$ScheduledTaskUserPassword
     )
     
-    $Credential = Get-PasswordstateCredential -PasswordID 259
-    $ScheduledTaskUserPassword = $Credential.GetNetworkCredential().password
-
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
         -ScheduledTaskUserPassword $ScheduledTaskUserPassword `
         -ScheduledTaskFunctionName "Send-EmailRequestingPaylocityReportBeRun" `
@@ -17,15 +15,19 @@ function Install-PaylocityToActiveDirectory {
         -ScheduledTaskUserPassword $ScheduledTaskUserPassword `
         -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
         -RepetitionInterval OnceAWeekTuesdayMorning
+
+    #Set-PathToPaylocityDataExport
 }
 
 Function Deploy-PaylocityToActiveDirectory {
     param (
-        $ComputerName,
-        $ScheduledTasksCredential
+        $ComputerName
     )
 
-    $Session = New-PSSession -ComputerName $ComputerName
+    $Credential = Get-PasswordstateCredential -PasswordID 259
+    $ScheduledTaskUserPassword = $Credential.GetNetworkCredential().password
+
+    $Session = New-PSSession -ComputerName $ComputerName -Credential $Credential
     Invoke-Command -Session $Session -ScriptBlock {
         Set-Location ($ENV:PSModulepath -split ";")[0]
         
@@ -35,7 +37,7 @@ Function Deploy-PaylocityToActiveDirectory {
         
         Git clone 
     }
-
+    
 }
 
 function Uninstall-PaylocityToActiveDirectory {
@@ -46,12 +48,12 @@ function Uninstall-PaylocityToActiveDirectory {
 }
 
 function Invoke-PaylocityToActiveDirectory {
-    Import-PaylocityOrganizationStructureIntoActiveDirecotry
+    Import-PaylocityOrganizationStructureIntoActiveDirectory
     Set-ADUserDepartmentBasedOnPaylocityDepartment
 }
 
 
-function Import-PaylocityOrganizationStructureIntoActiveDirecotry {
+function Import-PaylocityOrganizationStructureIntoActiveDirectory {
     [CmdletBinding()]
     param ()
     $PaylocityRecords = Get-PaylocityEmployees -Status A
@@ -85,6 +87,10 @@ Function Get-ADUsersWithGivenNamesThatDontMatchPaylocity {
     }
 }
 
+Function New-EmployeeHeirarchy {
+    Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
+}
+
 function Get-PaylocityEmployeesWithoutADAccount {
     $PaylocityRecords = Get-PaylocityEmployees
     $ADUsers = Get-ADUser -Properties employeeid -Filter *
@@ -100,10 +106,16 @@ Function Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount {
 Function Invoke-MatchPaylocityEmployeeWithADUser {
     [CmdletBinding()]
     param(
-        [switch]$IncludeMatchesOnOnlySurname
+        [Switch]$IncludeMatchesOnOnlySurname,
+        [Switch]$OnylActiveEmployees
     )
-    #$PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
-    $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccount
+    
+    if ($OnylActiveEmployees) {
+        $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
+    } else {
+        $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccount
+    }
+
     foreach ($Employee in $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount) {
         [string]$Surname = $Employee.Surname
         [string]$GivenName = $Employee.GivenName
@@ -186,10 +198,17 @@ function Get-PaylocityEmployees {
     }
     
     $PaylocityEmployees | 
-    Where { -not $Status -or $_.Status -eq $Status }
+    Where { -not $Status -or $_.Status -eq $Status } |
+    Where { "Ann Donelly" -ne "$($_.GivenName) $($_.Surname)"}
 }
 
-function Import-PaylocityEmployeeTitleIntoActiveDirecotry {
+Function Get-ActiveStoreEmployeesWhoShouldntHaveADAccounts {
+    Get-PaylocityEmployees -Status A |
+    Where DepartmentName -EQ "Stores"
+    Where JobTitle -in "Sales Associate","Key Holder","Assistant Store Manager I","Stock Clerk"
+}
+
+function Import-PaylocityEmployeeTitleIntoActiveDirectory {
     $PaylocityRecords = Get-PaylocityEmployees
     $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter *
     $PaylocityRecordsWithADUserAccount = $PaylocityRecords | where EmployeeID -In $ADUsers.employeeid
@@ -286,6 +305,18 @@ function Get-MESOnlyUsers {
 
 function Get-ADUsersThatShouldntBeMESOnlyUsers {
     
+}
+
+Function Get-TopLevelManager {
+    param (
+        $Employee,
+        $EmployeesSubSet
+    )
+    if ($Employee.ManagerEmployeeID -notin $EmployeesSubSet.EmployeeID) {
+        return $Employee.ManagerEmployeeID
+    } else {
+        Get-TopLevelManager -Employee ($EmployeesSubSet | where EmployeeId -eq $Employee.ManagerEmployeeID) -EmployeesSubSet $EmployeesSubSet
+    }
 }
 
 Function Get-PaylocityDepartmentsWithNiceNamesJsonPath {
