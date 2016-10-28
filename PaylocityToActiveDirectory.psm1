@@ -47,11 +47,103 @@ function Uninstall-PaylocityToActiveDirectory {
     Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
 }
 
+function Get-PathToPaylocityDataExport {   
+    $Env:PathToPaylocityDataExport
+}
+
+function Set-PathToPaylocityDataExport {
+    param (
+        $PathToPaylocityDataExport
+    )
+    [Environment]::SetEnvironmentVariable("PathToPaylocityDataExport", $PathToPaylocityDataExport, "User")
+}
+
+function Get-PaylocityEmployees {
+    param(
+        [ValidateSet("A","T")]$Status
+    )
+    
+    $PathToPaylocityDataExport = Get-PathToPaylocityDataExport
+
+    $MostRecentPaylocityDataExport = Get-ChildItem -File $PathToPaylocityDataExport | sort -Property CreationTime -Descending | select -First 1
+    [xml]$Content = Get-Content $MostRecentPaylocityDataExport.FullName
+    $Details = $Content.Report.CustomReportTable.Detail_Collection.Detail
+
+    $PaylocityEmployees = ForEach ($Detail in $Details) {
+        [pscustomobject][ordered]@{
+            Organization = $Detail.col10 | ConvertTo-TitleCase
+            State = $Detail.col9
+            Status = $Detail.col8
+            DepartmentName = $Detail.col7
+            DepartmentCode = $Detail.col6
+            JobTitle = $Detail.col5 | ConvertTo-TitleCase
+            ManagerEmployeeID = $Detail.col4
+            ManagerName = $Detail.col3 | ConvertTo-TitleCase
+            Surname = $Detail.col2 | ConvertTo-TitleCase
+            GivenName = $Detail.col1 | ConvertTo-TitleCase
+            EmployeeID = $Detail.col0
+        }
+    }
+    
+    $PaylocityEmployees | 
+    Where { -not $Status -or $_.Status -eq $Status }
+}
+
+function Get-PaylocityEmployeesWithoutADAccount {
+    param(
+        [ValidateSet("A","T")]$Status
+    )
+
+    $PaylocityRecords = Get-PaylocityEmployees @PSBoundParameters
+    $ADUsers = Get-ADUser -Properties employeeid -Filter *
+    $PaylocityRecordsWithoutADUserAccount = $PaylocityRecords | where EmployeeID -NotIn $ADUsers.employeeid
+    $PaylocityRecordsWithoutADUserAccount
+}
+
+Function Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount {
+    param(
+        [ValidateSet("A","T")]$Status
+    )
+
+    $PaylocityRecordsWithoutADUserAccount = Get-PaylocityEmployeesWithoutADAccount @PSBoundParameters
+    $StoreEmployeesWhoDontGetADAccounts = Get-StoreEmployeesWhoDontGetADAccounts
+    
+    $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = $PaylocityRecordsWithoutADUserAccount | 
+    where status -EQ A |
+    where EmployeeID -NotIn $StoreEmployeesWhoDontGetADAccounts.EmployeeId |
+    Where { "Ann Donelly" -ne "$($_.GivenName) $($_.Surname)"}
+
+    $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount 
+}
+
+function Get-PaylocityEmployeesGroupedByDepartment {
+    $PaylocityRecords = Get-PaylocityEmployees
+    $PaylocityRecords| group departmentname | sort count -Descending
+}
+
+Function Get-StoreEmployeesWhoDontGetADAccounts {
+    Get-PaylocityEmployees |
+    Where DepartmentName -EQ "Stores"
+    Where JobTitle -in "Sales Associate","Key Holder","Assistant Store Manager I","Stock Clerk"
+}
+
+Function Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory {
+    $PaylocityTerminatedEmployee = Get-PaylocityEmployees -Status T
+    $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter {Enabled -eq $true}
+    $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = $PaylocityTerminatedEmployee | where EmployeeID -In $ADUsers.employeeid
+    $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
+}
+
+Function Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
+    $DepartmentsOU = Get-ADOrganizationalUnit -Filter * | where name -Match "Departments"
+    $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department | where {-not $_.EmployeeId}
+    $ADUsersWithoutEmployeeID
+}
+
 function Invoke-PaylocityToActiveDirectory {
     Import-PaylocityOrganizationStructureIntoActiveDirectory
     Set-ADUserDepartmentBasedOnPaylocityDepartment
 }
-
 
 function Import-PaylocityOrganizationStructureIntoActiveDirectory {
     [CmdletBinding()]
@@ -91,18 +183,6 @@ Function New-EmployeeHeirarchy {
     Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
 }
 
-function Get-PaylocityEmployeesWithoutADAccount {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $ADUsers = Get-ADUser -Properties employeeid -Filter *
-    $PaylocityRecordsWithoutADUserAccount = $PaylocityRecords | where EmployeeID -NotIn $ADUsers.employeeid
-    $PaylocityRecordsWithoutADUserAccount
-}
-
-Function Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount {
-    $PaylocityRecordsWithoutADUserAccount = Get-PaylocityEmployeesWithoutADAccount
-    $PaylocityRecordsWithoutADUserAccount | where status -EQ A
-}
-
 Function Invoke-MatchPaylocityEmployeeWithADUser {
     [CmdletBinding()]
     param(
@@ -111,7 +191,7 @@ Function Invoke-MatchPaylocityEmployeeWithADUser {
     )
     
     if ($OnylActiveEmployees) {
-        $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
+        $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount -Status A
     } else {
         $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount = Get-PaylocityEmployeesWithoutADAccount
     }
@@ -154,60 +234,6 @@ function Test-DuplicateEmployeeID {
     $ADUsers | Group-Object employeeid | where count -gt 1 | where name -NE "" | select -ExpandProperty group
 }
 
-function Get-PaylocityEmployeesGroupedByDepartment {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $PaylocityRecords| group departmentname | sort count -Descending
-}
-
-function Get-PathToPaylocityDataExport {   
-    $Env:PathToPaylocityDataExport
-}
-
-function Set-PathToPaylocityDataExport {
-    param (
-        $PathToPaylocityDataExport
-    )
-    [Environment]::SetEnvironmentVariable("PathToPaylocityDataExport", $PathToPaylocityDataExport, "User")
-}
-
-function Get-PaylocityEmployees {
-    param(
-        [ValidateSet("A","T")]$Status
-    )
-    
-    $PathToPaylocityDataExport = Get-PathToPaylocityDataExport
-
-    $MostRecentPaylocityDataExport = Get-ChildItem -File $PathToPaylocityDataExport | sort -Property CreationTime -Descending | select -First 1
-    [xml]$Content = Get-Content $MostRecentPaylocityDataExport.FullName
-    $Details = $Content.Report.CustomReportTable.Detail_Collection.Detail
-
-    $PaylocityEmployees = ForEach ($Detail in $Details) {
-        [pscustomobject][ordered]@{
-            Organization = $Detail.col10 | ConvertTo-TitleCase
-            State = $Detail.col9
-            Status = $Detail.col8
-            DepartmentName = $Detail.col7
-            DepartmentCode = $Detail.col6
-            JobTitle = $Detail.col5 | ConvertTo-TitleCase
-            ManagerEmployeeID = $Detail.col4
-            ManagerName = $Detail.col3 | ConvertTo-TitleCase
-            Surname = $Detail.col2 | ConvertTo-TitleCase
-            GivenName = $Detail.col1 | ConvertTo-TitleCase
-            EmployeeID = $Detail.col0
-        }
-    }
-    
-    $PaylocityEmployees | 
-    Where { -not $Status -or $_.Status -eq $Status } |
-    Where { "Ann Donelly" -ne "$($_.GivenName) $($_.Surname)"}
-}
-
-Function Get-ActiveStoreEmployeesWhoShouldntHaveADAccounts {
-    Get-PaylocityEmployees -Status A |
-    Where DepartmentName -EQ "Stores"
-    Where JobTitle -in "Sales Associate","Key Holder","Assistant Store Manager I","Stock Clerk"
-}
-
 function Import-PaylocityEmployeeTitleIntoActiveDirectory {
     $PaylocityRecords = Get-PaylocityEmployees
     $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter *
@@ -217,14 +243,6 @@ function Import-PaylocityEmployeeTitleIntoActiveDirectory {
         $EmployeeADUser = $ADUsers | where employeeid -EQ $PaylocityRecord.EmployeeID
         #Unfinished
     }    
-}
-
-Function Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $PaylocityTerminatedEmployee = $PaylocityRecords | where status -EQ T
-    $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter {Enabled -eq $true}
-    $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = $PaylocityTerminatedEmployee | where EmployeeID -In $ADUsers.employeeid
-    $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
 }
 
 Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
@@ -244,8 +262,12 @@ Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
     }
 }
 
-Function Remove-ADMESUsersWhoHaventLoggedOnIn3Months {
-    $MESUserNames = Get-MESUsersWhoHaventLoggedOnIn3Months
+Function Remove-ADMESUsersWhoHaveNotLoggedOnIn3Months {
+    [CmdletBinding()]
+    param (
+        [Switch]$WhatIf = $true
+    )
+    $MESUserNames = Get-MESUsersWhoHaveLoggedOnIn3Months -DataSource "MESSQL.production.$env:USERDNSDOMAIN" -DataBase MES
     $ADUsers = Get-MESOnlyUsers
     $ADUserSAMAccountNames = $ADUsers.samaccountName
 
@@ -255,16 +277,16 @@ Function Remove-ADMESUsersWhoHaventLoggedOnIn3Months {
     where sideindicator -eq "=>" | 
     select -ExpandProperty InputObject
 
-    $ADMESUsersWhoHaventLoggedOnIn3Months | Remove-ADUser -WhatIf
+    $ADMESUsersWhoHaventLoggedOnIn3Months | Remove-ADUser -WhatIf:$WhatIf
 }
 
-Function Get-MESUsersWhoHaventLoggedOnIn3Months {
+Function Get-MESUsersWhoHaveLoggedOnIn3Months {
     param (
-        $DataSource,
-        $DataBase
+        [Parameter(Mandatory)]$DataSource,
+        [Parameter(Mandatory)]$DataBase
     )
     $DateOf3MonthsAgo = $(get-date).AddMonths(-3)
-    $QueryForMESUsersWhoHaventLoggedOnIn3Months = @"
+    $QueryForMESUsersWhoHaveLoggedOnIn3Months = @"
 SELECT [ID]
       ,[UserID]
       ,[Area]
@@ -272,12 +294,12 @@ SELECT [ID]
       ,[Cell]
       ,[Station]
       ,[LastLoginDate]
-  FROM [MES].[dbo].[LastLogin]
+  FROM [MES].[dbo].[LastLogin] (Nolock)
   where LastLoginDate > '$($DateOf3MonthsAgo.Year)-$($DateOf3MonthsAgo.Month)-$($DateOf3MonthsAgo.Day)'
   order by LastLoginDate desc
 "@
 
-    $MESUsersWhoHaveLoggedOnInTheLast3Months = Invoke-SQL -dataSource $DataSource -database $DataBase -sqlCommand $QueryForMESUsersWhoHaventLoggedOnIn3Months
+    $MESUsersWhoHaveLoggedOnInTheLast3Months = Invoke-SQL -dataSource $DataSource -database $DataBase -sqlCommand $QueryForMESUsersWhoHaveLoggedOnIn3Months
     $UserNames = $MESUsersWhoHaveLoggedOnInTheLast3Months | select -ExpandProperty userid
     $UserNames
 }
