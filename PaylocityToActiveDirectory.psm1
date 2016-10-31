@@ -63,30 +63,62 @@ function Get-PaylocityEmployees {
         [ValidateSet("A","T")]$Status
     )
     
-    $PathToPaylocityDataExport = Get-PathToPaylocityDataExport
+    if (-not $Script:PaylocityEmployees) {
 
-    $MostRecentPaylocityDataExport = Get-ChildItem -File $PathToPaylocityDataExport | sort -Property CreationTime -Descending | select -First 1
-    [xml]$Content = Get-Content $MostRecentPaylocityDataExport.FullName
-    $Details = $Content.Report.CustomReportTable.Detail_Collection.Detail
+        $PathToPaylocityDataExport = Get-PathToPaylocityDataExport
 
-    $PaylocityEmployees = ForEach ($Detail in $Details) {
-        [pscustomobject][ordered]@{
-            Organization = $Detail.col10 | ConvertTo-TitleCase
-            State = $Detail.col9
-            Status = $Detail.col8
-            DepartmentName = $Detail.col7
-            DepartmentCode = $Detail.col6
-            JobTitle = $Detail.col5 | ConvertTo-TitleCase
-            ManagerEmployeeID = $Detail.col4
-            ManagerName = $Detail.col3 | ConvertTo-TitleCase
-            Surname = $Detail.col2 | ConvertTo-TitleCase
-            GivenName = $Detail.col1 | ConvertTo-TitleCase
-            EmployeeID = $Detail.col0
+        $MostRecentPaylocityDataExport = Get-ChildItem -File $PathToPaylocityDataExport | sort -Property CreationTime -Descending | select -First 1
+        [xml]$Content = Get-Content $MostRecentPaylocityDataExport.FullName
+        $Details = $Content.Report.CustomReportTable.Detail_Collection.Detail
+
+        $PaylocityEmployees = ForEach ($Detail in $Details) {
+            [pscustomobject][ordered]@{
+                Organization = $Detail.col10 | ConvertTo-TitleCase
+                State = $Detail.col9
+                Status = $Detail.col8
+                DepartmentName = $Detail.col7
+                DepartmentCode = $Detail.col6
+                JobTitle = $Detail.col5 | ConvertTo-TitleCase
+                ManagerEmployeeID = $Detail.col4
+                ManagerName = $Detail.col3 | ConvertTo-TitleCase
+                Surname = $Detail.col2 | ConvertTo-TitleCase
+                GivenName = $Detail.col1 | ConvertTo-TitleCase
+                EmployeeID = $Detail.col0
+            }
         }
+    
+        $Script:PaylocityEmployees = $PaylocityEmployees | 
+        Where { -not $Status -or $_.Status -eq $Status }
     }
     
-    $PaylocityEmployees | 
-    Where { -not $Status -or $_.Status -eq $Status }
+    $Script:PaylocityEmployees
+}
+
+Function Get-PaylocityADUser {
+    param(
+        [ValidateSet("A","T")]$Status
+    )
+    $PaylocityRecords = Get-PaylocityEmployees @PSBoundParameters
+    $ADUsers = Get-ADUser -Properties employeeid -Filter *
+    $PaylocityADUsers = $ADUsers | where EmployeeID -In $PaylocityRecords.EmployeeID
+    
+    $PaylocityADUsers |
+    Add-Member -Name PaylocityDepartmentCode -MemberType ScriptProperty -PassThru -Value {
+        $PaylocityRecords |
+        where EmployeeID -eq $this.EmployeeID |
+        select -ExpandProperty DepartmentCode
+    } |
+    Add-Member -Name PaylocityDepartmentName -MemberType ScriptProperty -PassThru -Value {
+        $PaylocityRecords |
+        where EmployeeID -eq $this.EmployeeID |
+        select -ExpandProperty DepartmentName
+    } |
+    Add-Member -Name PaylocityDepartmentNiceName -MemberType ScriptProperty -PassThru -Value {
+        Get-DepartmentNiceName -PaylocityDepartmentName $this.PaylocityDepartmentName 
+    } |
+    Add-Member -Name PaylocityDepartmentRoleSAMAccountName -MemberType ScriptProperty -PassThru -Value {
+        "Role_Paylocity$($this.PaylocityDepartmentCode)"
+    } 
 }
 
 function Get-PaylocityEmployeesWithoutADAccount {
@@ -98,6 +130,16 @@ function Get-PaylocityEmployeesWithoutADAccount {
     $ADUsers = Get-ADUser -Properties employeeid -Filter *
     $PaylocityRecordsWithoutADUserAccount = $PaylocityRecords | where EmployeeID -NotIn $ADUsers.employeeid
     $PaylocityRecordsWithoutADUserAccount
+}
+
+function Get-ADUserWithPaylocityEmployeeRecord {
+    param(
+        [ValidateSet("A","T")]$Status
+    )
+
+    $PaylocityRecords = Get-PaylocityEmployees @PSBoundParameters
+    $ADUsers = Get-ADUser -Properties employeeid -Filter *
+    $ADUsers | where EmployeeID -In $PaylocityRecords.EmployeeID
 }
 
 Function Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount {
@@ -138,6 +180,11 @@ Function Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
     $DepartmentsOU = Get-ADOrganizationalUnit -Filter * | where name -Match "Departments"
     $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department | where {-not $_.EmployeeId}
     $ADUsersWithoutEmployeeID
+}
+
+Function Invoke-ReviewActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
+    Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID | 
+    select -Property * -ExcludeProperty DistinguishedName,ObjectClass,ObjectGUID,EmployeeID,PSShowComputerName,SID | ft
 }
 
 function Invoke-PaylocityToActiveDirectory {
@@ -246,8 +293,7 @@ function Import-PaylocityEmployeeTitleIntoActiveDirectory {
 }
 
 Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $PaylocityTerminatedEmployee = $PaylocityRecords | where status -EQ T
+    $PaylocityTerminatedEmployee = Get-PaylocityEmployees -Status T
 
     foreach ($Employee in $PaylocityTerminatedEmployee) {
         [string]$Surname = $Employee.Surname
@@ -387,7 +433,6 @@ Function Get-PaylocityDepartmentNamesAndCodes {
     $(
         $PaylocityRecords | 
         group departmentname, departmentcode | 
-        sort count -Descending | 
         select -ExpandProperty name
     ) | % {
         [pscustomobject][ordered]@{
@@ -395,6 +440,31 @@ Function Get-PaylocityDepartmentNamesAndCodes {
             DepartmentCode = $($_ -split ", ")[1] 
         }
     }
+}
+
+Function Invoke-EnsurePaylocityDepartmentsHaveRole {
+    $PaylocityDepartmentNamesAndCodes = Get-PaylocityDepartmentNamesAndCodes
+
+    ForEach ($PaylocityDepartmentNameAndCode in $PaylocityDepartmentNamesAndCodes) {
+        $DepartmentNiceName = Get-DepartmentNiceName -PaylocityDepartmentName $PaylocityDepartmentNameAndCode.DepartmentName
+        $ExistingADGroupForPaylocityDepartment = Get-ADGroup -Identity "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentCode)" -Properties Description
+        
+        if ($ExistingADGroupForPaylocityDepartment) {
+            if ($ExistingADGroupForPaylocityDepartment.Name -ne "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)" ) {
+               $ExistingADGroupForPaylocityDepartment | Rename-ADObject -NewName "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)"
+            }
+
+            if ($ExistingADGroupForPaylocityDepartment.Description -ne "Role Paylocity $DepartmentNiceName") {
+                $ExistingADGroupForPaylocityDepartment | Set-ADGroup -Description "Role Paylocity $DepartmentNiceName"
+            }
+        } else {
+            New-ADGroup -Path "OU=Paylocity,OU=Company - Security Groups,DC=tervis,DC=prv" -Name "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)" -Description "Role Paylocity $DepartmentNiceName" -GroupCategory Security -GroupScope Universal -SamAccountName "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentCode)"
+        }
+    }
+}
+
+Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
+    Get-PaylocityEmployeesWithADAccount
 }
 
 Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
