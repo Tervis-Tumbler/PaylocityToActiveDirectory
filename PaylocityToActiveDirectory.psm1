@@ -99,26 +99,31 @@ Function Get-PaylocityADUser {
         [ValidateSet("A","T")]$Status
     )
     $PaylocityRecords = Get-PaylocityEmployees @PSBoundParameters
-    $ADUsers = Get-ADUser -Properties employeeid -Filter *
+    $ADUsers = Get-ADUser -Properties EmployeeID,MemberOf -Filter *
     $PaylocityADUsers = $ADUsers | where EmployeeID -In $PaylocityRecords.EmployeeID
     
-    $PaylocityADUsers |
-    Add-Member -Name PaylocityDepartmentCode -MemberType ScriptProperty -PassThru -Value {
-        $PaylocityRecords |
-        where EmployeeID -eq $this.EmployeeID |
-        select -ExpandProperty DepartmentCode
-    } |
-    Add-Member -Name PaylocityDepartmentName -MemberType ScriptProperty -PassThru -Value {
-        $PaylocityRecords |
-        where EmployeeID -eq $this.EmployeeID |
-        select -ExpandProperty DepartmentName
-    } |
-    Add-Member -Name PaylocityDepartmentNiceName -MemberType ScriptProperty -PassThru -Value {
-        Get-DepartmentNiceName -PaylocityDepartmentName $this.PaylocityDepartmentName 
-    } |
-    Add-Member -Name PaylocityDepartmentRoleSAMAccountName -MemberType ScriptProperty -PassThru -Value {
-        "Role_Paylocity$($this.PaylocityDepartmentCode)"
-    } 
+    $PaylocityADUsers | % {
+        $_ |
+        Add-Member -Name PaylocityDepartmentCode -MemberType NoteProperty -PassThru -Force -Value (
+            Get-PaylocityEmployees |
+            where EmployeeID -eq $_.EmployeeID |
+            select -ExpandProperty DepartmentCode
+        ) |
+        Add-Member -Name PaylocityDepartmentName -MemberType NoteProperty -PassThru -Force -Value (
+            Get-PaylocityEmployees |
+            where EmployeeID -eq $_.EmployeeID |
+            select -ExpandProperty DepartmentName
+        ) |
+        Add-Member -Name PaylocityDepartmentNiceName -MemberType ScriptProperty -PassThru -Force -Value {
+            Get-DepartmentNiceName -PaylocityDepartmentName $this.PaylocityDepartmentName 
+        } |
+        Add-Member -Name PaylocityDepartmentRoleSAMAccountName -MemberType ScriptProperty -PassThru -Force -Value {
+            "Role_Paylocity$($this.PaylocityDepartmentCode)"
+        } |
+        Add-Member -Name PaylocityDepartmentRoleName -MemberType ScriptProperty -PassThru -Force -Value {
+            "Role_Paylocity$($this.PaylocityDepartmentName)"
+        }
+    }
 }
 
 function Get-PaylocityEmployeesWithoutADAccount {
@@ -464,7 +469,12 @@ Function Invoke-EnsurePaylocityDepartmentsHaveRole {
 }
 
 Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
-    Get-PaylocityEmployeesWithADAccount
+    $ADUsers = Get-PaylocityADUser -Status A | 
+    where {-not ($_.MemberOf -Match $_.PaylocityDepartmentRoleName) }
+
+    foreach ($ADUser in $ADUsers) {
+        Add-ADGroupMember -Identity $ADUser.PaylocityDepartmentRoleSAMAccountName -Members $ADUser
+    }
 }
 
 Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
