@@ -19,7 +19,7 @@ function Install-PaylocityToActiveDirectory {
     #Set-PathToPaylocityDataExport
 }
 
-Function Deploy-PaylocityToActiveDirectory {
+Function Invoke-DeployPaylocityToActiveDirectory {
     param (
         $ComputerName
     )
@@ -87,11 +87,11 @@ function Get-PaylocityEmployees {
             }
         }
     
-        $Script:PaylocityEmployees = $PaylocityEmployees | 
-        Where { -not $Status -or $_.Status -eq $Status }
+        $Script:PaylocityEmployees = $PaylocityEmployees 
     }
     
-    $Script:PaylocityEmployees
+    $Script:PaylocityEmployees | 
+    Where { -not $Status -or $_.Status -eq $Status }
 }
 
 Function Get-PaylocityADUser {
@@ -105,12 +105,12 @@ Function Get-PaylocityADUser {
     $PaylocityADUsers | % {
         $_ |
         Add-Member -Name PaylocityDepartmentCode -MemberType NoteProperty -PassThru -Force -Value (
-            Get-PaylocityEmployees |
+            $PaylocityRecords |
             where EmployeeID -eq $_.EmployeeID |
             select -ExpandProperty DepartmentCode
         ) |
         Add-Member -Name PaylocityDepartmentName -MemberType NoteProperty -PassThru -Force -Value (
-            Get-PaylocityEmployees |
+            $PaylocityRecords |
             where EmployeeID -eq $_.EmployeeID |
             select -ExpandProperty DepartmentName
         ) |
@@ -135,6 +135,60 @@ function Get-PaylocityEmployeesWithoutADAccount {
     $ADUsers = Get-ADUser -Properties employeeid -Filter *
     $PaylocityRecordsWithoutADUserAccount = $PaylocityRecords | where EmployeeID -NotIn $ADUsers.employeeid
     $PaylocityRecordsWithoutADUserAccount
+}
+
+Function Get-PaylocityDepartmentsWithNiceNamesJsonPath {
+    Import-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
+}
+
+Function Set-PaylocityDepartmentsWithNiceNamesJsonPath {
+    param (
+        $PaylocityDepartmentsWithNiceNamesJsonPath
+    )
+    $PaylocityDepartmentsWithNiceNamesJsonPath | Export-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
+}
+
+Function Get-PaylocityDepartmentNamesAndCodes {
+    $PaylocityRecords = Get-PaylocityEmployees
+    $(
+        $PaylocityRecords | 
+        group departmentname, departmentcode | 
+        select -ExpandProperty name
+    ) | % {
+        [pscustomobject][ordered]@{
+            DepartmentName = $($_ -split ", ")[0]
+            DepartmentCode = $($_ -split ", ")[1] 
+        }
+    }
+}
+
+Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
+    $PaylocityDepartments = Get-PaylocityDepartmentNamesAndCodes 
+    $PaylocityDepartments | 
+    sort departmentname | % {
+@"
+[pscustomobject][ordered]@{
+    DepartmentName = "$($_.DepartmentName)"
+    DepartmentCode = "$($_.DepartmentCode)"
+    DepartmentNiceName = ""
+},
+"@
+    }
+}
+
+function Get-DepartmentNiceName {
+    param(
+        $PaylocityDepartmentName
+    )
+    
+    if (-not $Script:PaylocityDepartmentsWithNiceNames) {
+        $Script:PaylocityDepartmentsWithNiceNames = Get-Content -Path $(Get-PaylocityDepartmentsWithNiceNamesJsonPath) | 
+        ConvertFrom-Json
+    }
+
+    $Script:PaylocityDepartmentsWithNiceNames | 
+    where DepartmentName -eq $PaylocityDepartmentName | 
+    select -ExpandProperty DepartmentNiceName
 }
 
 function Get-ADUserWithPaylocityEmployeeRecord {
@@ -195,6 +249,8 @@ Function Invoke-ReviewActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmploye
 function Invoke-PaylocityToActiveDirectory {
     Import-PaylocityOrganizationStructureIntoActiveDirectory
     Set-ADUserDepartmentBasedOnPaylocityDepartment
+    Invoke-EnsurePaylocityDepartmentsHaveRole
+    Invoke-PaylocityDepartmentMemberShipToRoleSync
 }
 
 function Import-PaylocityOrganizationStructureIntoActiveDirectory {
@@ -229,10 +285,6 @@ Function Get-ADUsersWithGivenNamesThatDontMatchPaylocity {
             "$($PaylocityRecord.EmployeeGivenName) $($PaylocityRecord.EmployeeSurname) $($EmployeeADUser.name)"         
         }
     }
-}
-
-Function New-EmployeeHeirarchy {
-    Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount
 }
 
 Function Invoke-MatchPaylocityEmployeeWithADUser {
@@ -276,14 +328,6 @@ Function Invoke-MatchPaylocityEmployeeWithADUser {
 function Backup-ActiveDirectoryUserData {
     $ActiveDirectoryUsersExport = Get-ADUser -Filter * -Properties Employeeid, Manager, Title
     $ActiveDirectoryUsersExport | ConvertTo-Json | Out-File ~\ActiveDirectoryBackup.json
-}
-
-function Test-DuplicateEmployeeID {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $ADUsers = Get-ADUser -Properties employeeid -Filter *
-
-    $PaylocityRecords | Group-Object EmployeeID | where count -gt 1
-    $ADUsers | Group-Object employeeid | where count -gt 1 | where name -NE "" | select -ExpandProperty group
 }
 
 function Import-PaylocityEmployeeTitleIntoActiveDirectory {
@@ -338,37 +382,6 @@ Function Get-TopLevelManager {
     }
 }
 
-Function Get-PaylocityDepartmentsWithNiceNamesJsonPath {
-    Import-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
-}
-
-Function Set-PaylocityDepartmentsWithNiceNamesJsonPath {
-    param (
-        $PaylocityDepartmentsWithNiceNamesJsonPath
-    )
-    $PaylocityDepartmentsWithNiceNamesJsonPath | Export-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
-}
-
-function Get-DepartmentNiceName {
-    param(
-        $PaylocityDepartmentName
-    )
-    
-    if (-not $Script:PaylocityDepartmentsWithNiceNames) {
-        $Script:PaylocityDepartmentsWithNiceNames = Get-Content -Path $(Get-PaylocityDepartmentsWithNiceNamesJsonPath) | 
-        ConvertFrom-Json
-    }
-
-    $Script:PaylocityDepartmentsWithNiceNames | 
-    where DepartmentName -eq $PaylocityDepartmentName | 
-    select -ExpandProperty DepartmentNiceName
-}
-
-function Test-ADUsersWithDuplicateEmployeeIDs {
-    $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid
-    $ADUsersWithEmployeeIDs | group employeeid | where count -GT 1
-}
-
 Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
@@ -376,20 +389,6 @@ Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInA
         $Response = New-TrackITWorkOrder -Summary "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -Type "Technical Services" -AssignedTechnician "" -RequestorName "Chris Magnuson"
         Add-TrackITWorkOrderNote -WorkOrderNumber $Response.data.data.Id -FullText "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD"
         Edit-TrackITWorkOrder -WorkOrderNumber $Response.data.data.Id -AssignedTechnician ""
-    }
-}
-
-Function Get-PaylocityDepartmentNamesAndCodes {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $(
-        $PaylocityRecords | 
-        group departmentname, departmentcode | 
-        select -ExpandProperty name
-    ) | % {
-        [pscustomobject][ordered]@{
-            DepartmentName = $($_ -split ", ")[0]
-            DepartmentCode = $($_ -split ", ")[1] 
-        }
     }
 }
 
@@ -423,21 +422,7 @@ Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
     }
 }
 
-Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
-    $PaylocityDepartments = Get-PaylocityDepartmentNamesAndCodes 
-    $PaylocityDepartments | 
-    sort departmentname | % {
-@"
-[pscustomobject][ordered]@{
-    DepartmentName = "$($_.DepartmentName)"
-    DepartmentCode = "$($_.DepartmentCode)"
-    DepartmentNiceName = ""
-},
-"@
-    }
-}
-
-filter Mixin-PaylocityReportDetails {
+filter Add-PaylocityReportDetailsCustomMembers {
     $_ | Add-Member -MemberType ScriptProperty -Name "Organization" -Value {$This.col10 | ConvertTo-TitleCase}
     $_ | Add-Member -MemberType ScriptProperty -Name "State" -Value {$This.col9}
     $_ | Add-Member -MemberType ScriptProperty -Name "Status" -Value {$This.col8}
@@ -507,6 +492,19 @@ div.WordSection1
 "@
 
     Send-TervisMailMessage -To alarkins@tervis.com -Bcc cmagnuson@tervis.com -Subject "Export of data from Paylocity" -Body $HTMLBody -From "Chris Magnuson <cmagnuson@tervis.com>" -BodyAsHtml
+}
+
+function Test-ADUsersWithDuplicateEmployeeIDs {
+    $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid
+    $ADUsersWithEmployeeIDs | group employeeid | where count -GT 1
+}
+
+function Test-DuplicateEmployeeID {
+    $PaylocityRecords = Get-PaylocityEmployees
+    $ADUsers = Get-ADUser -Properties employeeid -Filter *
+
+    $PaylocityRecords | Group-Object EmployeeID | where count -gt 1
+    $ADUsers | Group-Object employeeid | where count -gt 1 | where name -NE "" | select -ExpandProperty group
 }
 
 #Function Invoke-RequestUsersToUpdateTheirPreferredFirstNameInPaylocity {
