@@ -1,4 +1,4 @@
-﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell
+﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell, StringPowerShell, TervisMES
 
 function Install-PaylocityToActiveDirectory {
     param (
@@ -313,48 +313,6 @@ Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
     }
 }
 
-Function Remove-ADMESUsersWhoHaveNotLoggedOnIn3Months {
-    [CmdletBinding()]
-    param (
-        [Switch]$WhatIf = $true
-    )
-    $MESUserNames = Get-MESUsersWhoHaveLoggedOnIn3Months -DataSource "MESSQL.production.$env:USERDNSDOMAIN" -DataBase MES
-    $ADUsers = Get-MESOnlyUsers
-    $ADUserSAMAccountNames = $ADUsers.samaccountName
-
-    $Results = Compare-Object $MESUserNames $ADUserSAMAccountNames
-    
-    $ADMESUsersWhoHaventLoggedOnIn3Months = $Results | 
-    where sideindicator -eq "=>" | 
-    select -ExpandProperty InputObject
-
-    $ADMESUsersWhoHaventLoggedOnIn3Months | Remove-ADUser -WhatIf:$WhatIf
-}
-
-Function Get-MESUsersWhoHaveLoggedOnIn3Months {
-    param (
-        [Parameter(Mandatory)]$DataSource,
-        [Parameter(Mandatory)]$DataBase
-    )
-    $DateOf3MonthsAgo = $(get-date).AddMonths(-3)
-    $QueryForMESUsersWhoHaveLoggedOnIn3Months = @"
-SELECT [ID]
-      ,[UserID]
-      ,[Area]
-      ,[Shift]
-      ,[Cell]
-      ,[Station]
-      ,[LastLoginDate]
-  FROM [MES].[dbo].[LastLogin] (Nolock)
-  where LastLoginDate > '$($DateOf3MonthsAgo.Year)-$($DateOf3MonthsAgo.Month)-$($DateOf3MonthsAgo.Day)'
-  order by LastLoginDate desc
-"@
-
-    $MESUsersWhoHaveLoggedOnInTheLast3Months = Invoke-SQL -dataSource $DataSource -database $DataBase -sqlCommand $QueryForMESUsersWhoHaveLoggedOnIn3Months
-    $UserNames = $MESUsersWhoHaveLoggedOnInTheLast3Months | select -ExpandProperty userid
-    $UserNames
-}
-
 function Set-ADUserDepartmentBasedOnPaylocityDepartment {
     $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid, Department, Division
     $PaylocityRecords = Get-PaylocityEmployees
@@ -366,18 +324,6 @@ function Set-ADUserDepartmentBasedOnPaylocityDepartment {
             $ADUser | Set-ADUser -Department $DepartmentNiceName -Division $ADUser.Department
         }
     }
-}
-
-function Get-MESOnlyUsers {
-    $OU = Get-ADOrganizationalUnit -filter * | 
-    where DistinguishedName -like "OU=Users,OU=Production Floor,OU=Operations*" | 
-    select -ExpandProperty DistinguishedName
-
-    Get-ADUser -SearchBase $OU -Filter { Enabled -eq $false }
-}
-
-function Get-ADUsersThatShouldntBeMESOnlyUsers {
-    
 }
 
 Function Get-TopLevelManager {
@@ -489,13 +435,6 @@ Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
 },
 "@
     }
-}
-
-Function ConvertTo-TitleCase {
-    param(
-        [Parameter(ValueFromPipeline)][String]$Input
-    )
-    (Get-Culture).TextInfo.ToTitleCase($Input.ToLower())
 }
 
 filter Mixin-PaylocityReportDetails {
