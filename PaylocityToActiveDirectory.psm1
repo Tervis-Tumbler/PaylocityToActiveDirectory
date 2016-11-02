@@ -3,7 +3,9 @@
 function Install-PaylocityToActiveDirectory {
     param (
         $PathToScriptForScheduledTask = $PSScriptRoot,
-        [Parameter(Mandatory)]$ScheduledTaskUserPassword
+        [Parameter(Mandatory)]$ScheduledTaskUserPassword,
+        [Parameter(Mandatory)]$PathToPaylocityDataExport,
+        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath
     )
     
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
@@ -16,12 +18,22 @@ function Install-PaylocityToActiveDirectory {
         -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
         -RepetitionInterval OnceAWeekTuesdayMorning
 
-    #Set-PathToPaylocityDataExport
+    Set-PathToPaylocityDataExport -PathToPaylocityDataExport $PathToPaylocityDataExport
+    Set-PaylocityDepartmentsWithNiceNamesJsonPath -PaylocityDepartmentsWithNiceNamesJsonPath $PaylocityDepartmentsWithNiceNamesJsonPath
+}
+
+function Uninstall-PaylocityToActiveDirectory {
+    param (
+        $PathToScriptForScheduledTask = $PSScriptRoot
+    )
+    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
 }
 
 Function Invoke-DeployPaylocityToActiveDirectory {
     param (
-        $ComputerName
+        $ComputerName,
+        [Parameter(Mandatory)]$PathToPaylocityDataExport,
+        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath
     )
 
     $Credential = Get-PasswordstateCredential -PasswordID 259
@@ -35,16 +47,13 @@ Function Invoke-DeployPaylocityToActiveDirectory {
             choco install git -y
         }
         
-        Git clone 
+        "PowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+            Git clone "https://github.com/Tervis-Tumbler/$_"
+        }
+
+        Install-PaylocityToActiveDirectory -ScheduledTaskUserPassword $ScheduledTaskUserPassword
     }
     
-}
-
-function Uninstall-PaylocityToActiveDirectory {
-    param (
-        $PathToScriptForScheduledTask = $PSScriptRoot
-    )
-    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
 }
 
 function Get-PathToPaylocityDataExport {   
