@@ -1,4 +1,4 @@
-﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell, StringPowerShell, TervisMES
+﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell, StringPowerShell, TervisMES, TervisPaylocity
 
 function Install-PaylocityToActiveDirectory {
     param (
@@ -18,8 +18,7 @@ function Install-PaylocityToActiveDirectory {
         -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
         -RepetitionInterval OnceAWeekTuesdayMorning
 
-    Set-PathToPaylocityDataExport -PathToPaylocityDataExport $PathToPaylocityDataExport
-    Set-PaylocityDepartmentsWithNiceNamesJsonPath -PaylocityDepartmentsWithNiceNamesJsonPath $PaylocityDepartmentsWithNiceNamesJsonPath
+    Install-TervisPaylocity -PathToPaylocityDataExport $PathToPaylocityDataExport -PaylocityDepartmentsWithNiceNamesJsonPath $PaylocityDepartmentsWithNiceNamesJsonPath
 }
 
 function Uninstall-PaylocityToActiveDirectory {
@@ -47,60 +46,20 @@ Function Invoke-DeployPaylocityToActiveDirectory {
             choco install git -y
         }
         
-        "PowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
             Git clone "https://github.com/Tervis-Tumbler/$_"
+        }
+
+        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+            Write-host $_
+            Push-Location -Path ".\$_"
+            git pull
+            Pop-Location
         }
 
         Install-PaylocityToActiveDirectory -ScheduledTaskUserPassword $ScheduledTaskUserPassword
     }
     
-}
-
-function Get-PathToPaylocityDataExport {   
-    $Env:PathToPaylocityDataExport
-}
-
-function Set-PathToPaylocityDataExport {
-    param (
-        $PathToPaylocityDataExport
-    )
-    [Environment]::SetEnvironmentVariable("PathToPaylocityDataExport", $PathToPaylocityDataExport, "User")
-}
-
-function Get-PaylocityEmployees {
-    param(
-        [ValidateSet("A","T")]$Status
-    )
-    
-    if (-not $Script:PaylocityEmployees) {
-
-        $PathToPaylocityDataExport = Get-PathToPaylocityDataExport
-
-        $MostRecentPaylocityDataExport = Get-ChildItem -File $PathToPaylocityDataExport | sort -Property CreationTime -Descending | select -First 1
-        [xml]$Content = Get-Content $MostRecentPaylocityDataExport.FullName
-        $Details = $Content.Report.CustomReportTable.Detail_Collection.Detail
-
-        $PaylocityEmployees = ForEach ($Detail in $Details) {
-            [pscustomobject][ordered]@{
-                Organization = $Detail.col10 | ConvertTo-TitleCase
-                State = $Detail.col9
-                Status = $Detail.col8
-                DepartmentName = $Detail.col7
-                DepartmentCode = $Detail.col6
-                JobTitle = $Detail.col5 | ConvertTo-TitleCase
-                ManagerEmployeeID = $Detail.col4
-                ManagerName = $Detail.col3 | ConvertTo-TitleCase
-                Surname = $Detail.col2 | ConvertTo-TitleCase
-                GivenName = $Detail.col1 | ConvertTo-TitleCase
-                EmployeeID = $Detail.col0
-            }
-        }
-    
-        $Script:PaylocityEmployees = $PaylocityEmployees 
-    }
-    
-    $Script:PaylocityEmployees | 
-    Where { -not $Status -or $_.Status -eq $Status }
 }
 
 Function Get-PaylocityADUser {
@@ -146,60 +105,6 @@ function Get-PaylocityEmployeesWithoutADAccount {
     $PaylocityRecordsWithoutADUserAccount
 }
 
-Function Get-PaylocityDepartmentsWithNiceNamesJsonPath {
-    Import-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
-}
-
-Function Set-PaylocityDepartmentsWithNiceNamesJsonPath {
-    param (
-        $PaylocityDepartmentsWithNiceNamesJsonPath
-    )
-    $PaylocityDepartmentsWithNiceNamesJsonPath | Export-Clixml -Path $env:USERPROFILE\PaylocityDepartmentsWithNiceNamesJsonPath.xml
-}
-
-Function Get-PaylocityDepartmentNamesAndCodes {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $(
-        $PaylocityRecords | 
-        group departmentname, departmentcode | 
-        select -ExpandProperty name
-    ) | % {
-        [pscustomobject][ordered]@{
-            DepartmentName = $($_ -split ", ")[0]
-            DepartmentCode = $($_ -split ", ")[1] 
-        }
-    }
-}
-
-Function Get-PaylocityDepartmentNamesAndCodesAsPowerShellPSCustomObjectText {
-    $PaylocityDepartments = Get-PaylocityDepartmentNamesAndCodes 
-    $PaylocityDepartments | 
-    sort departmentname | % {
-@"
-[pscustomobject][ordered]@{
-    DepartmentName = "$($_.DepartmentName)"
-    DepartmentCode = "$($_.DepartmentCode)"
-    DepartmentNiceName = ""
-},
-"@
-    }
-}
-
-function Get-DepartmentNiceName {
-    param(
-        $PaylocityDepartmentName
-    )
-    
-    if (-not $Script:PaylocityDepartmentsWithNiceNames) {
-        $Script:PaylocityDepartmentsWithNiceNames = Get-Content -Path $(Get-PaylocityDepartmentsWithNiceNamesJsonPath) | 
-        ConvertFrom-Json
-    }
-
-    $Script:PaylocityDepartmentsWithNiceNames | 
-    where DepartmentName -eq $PaylocityDepartmentName | 
-    select -ExpandProperty DepartmentNiceName
-}
-
 function Get-ADUserWithPaylocityEmployeeRecord {
     param(
         [ValidateSet("A","T")]$Status
@@ -226,14 +131,9 @@ Function Get-PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount {
     $PaylocityEmployeesWithoutADAccountThatShouldHaveAnAccount 
 }
 
-function Get-PaylocityEmployeesGroupedByDepartment {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $PaylocityRecords| group departmentname | sort count -Descending
-}
-
 Function Get-StoreEmployeesWhoDontGetADAccounts {
     Get-PaylocityEmployees |
-    Where DepartmentName -EQ "Stores"
+    Where DepartmentName -EQ "Stores" |
     Where JobTitle -in "Sales Associate","Key Holder","Assistant Store Manager I","Stock Clerk"
 }
 
@@ -246,8 +146,13 @@ Function Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory {
 
 Function Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
     $DepartmentsOU = Get-ADOrganizationalUnit -Filter * | where name -Match "Departments"
-    $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department | where {-not $_.EmployeeId}
-    $ADUsersWithoutEmployeeID
+    $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department, LastLogonDate, MemberOf | 
+    where {-not $_.EmployeeId} |
+    where DistinguishedName -NotMatch "OU=Store Accounts,OU=Users,OU=Stores,OU=Departments" |
+    where {-not ($_.MemberOf -Match "CN=Contractor,")} |
+    where {-not ($_.MemberOf -Match "CN=SharedAccountsThatNeedToBeAddressed,")} |
+    where {-not ($_.MemberOf -Match "CN=Test Users,")}
+    $ADUsersWithoutEmployeeID | sort name | select -Property * -ExcludeProperty MemberOf, PropertyNames
 }
 
 Function Invoke-ReviewActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
@@ -379,18 +284,6 @@ function Set-ADUserDepartmentBasedOnPaylocityDepartment {
     }
 }
 
-Function Get-TopLevelManager {
-    param (
-        $Employee,
-        $EmployeesSubSet
-    )
-    if ($Employee.ManagerEmployeeID -notin $EmployeesSubSet.EmployeeID) {
-        return $Employee.ManagerEmployeeID
-    } else {
-        Get-TopLevelManager -Employee ($EmployeesSubSet | where EmployeeId -eq $Employee.ManagerEmployeeID) -EmployeesSubSet $EmployeesSubSet
-    }
-}
-
 Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
@@ -429,20 +322,6 @@ Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
     foreach ($ADUser in $ADUsers) {
         Add-ADGroupMember -Identity $ADUser.PaylocityDepartmentRoleSAMAccountName -Members $ADUser
     }
-}
-
-filter Add-PaylocityReportDetailsCustomMembers {
-    $_ | Add-Member -MemberType ScriptProperty -Name "Organization" -Value {$This.col10 | ConvertTo-TitleCase}
-    $_ | Add-Member -MemberType ScriptProperty -Name "State" -Value {$This.col9}
-    $_ | Add-Member -MemberType ScriptProperty -Name "Status" -Value {$This.col8}
-    $_ | Add-Member -MemberType ScriptProperty -Name "DepartmentName" -Value {$This.col7}
-    $_ | Add-Member -MemberType ScriptProperty -Name "DepartmentCode" -Value {$This.col6}
-    $_ | Add-Member -MemberType ScriptProperty -Name "JobTitle" -Value {$This.col5 | ConvertTo-TitleCase}
-    $_ | Add-Member -MemberType ScriptProperty -Name "ManagerEmployeeID" -Value {$This.col4}
-    $_ | Add-Member -MemberType ScriptProperty -Name "ManagerName" -Value {$This.col3 | ConvertTo-TitleCase}
-    $_ | Add-Member -MemberType ScriptProperty -Name "Surname" -Value {$This.col2 | ConvertTo-TitleCase}
-    $_ | Add-Member -MemberType ScriptProperty -Name "GivenName" -Value {$This.col1 | ConvertTo-TitleCase}
-    $_ | Add-Member -MemberType ScriptProperty -Name "EmployeeID" -Value {$This.col0}
 }
 
 Function Send-EmailRequestingPaylocityReportBeRun {
@@ -515,37 +394,3 @@ function Test-DuplicateEmployeeID {
     $PaylocityRecords | Group-Object EmployeeID | where count -gt 1
     $ADUsers | Group-Object employeeid | where count -gt 1 | where name -NE "" | select -ExpandProperty group
 }
-
-#Function Invoke-RequestUsersToUpdateTheirPreferredFirstNameInPaylocity {
-#    $images = @{ 
-#        image1 = 'c:\temp\test.jpg' 
-#        image2 = 'C:\temp\test2.png' 
-#    }  
-#  
-#    $body = @' 
-#<html>  
-#    <body>  
-#    <img src="cid:image1"><br> 
-#    <img src="cid:image2"> 
-#    </body>  
-#</html>  
-#'@  
-#  
-#    $params = @{ 
-#        InlineAttachments = $images 
-#        Attachments = 'C:\temp\attachment1.txt', 'C:\temp\attachment2.txt' 
-#        Body = $body 
-#        BodyAsHtml = $true 
-#        Subject = 'Test email' 
-#        From = 'username@gmail.com' 
-#        To = 'recipient@domain.com' 
-#        Cc = 'recipient2@domain.com', 'recipient3@domain.com' 
-#        SmtpServer = 'smtp.gmail.com' 
-#        Port = 587 
-#        Credential = (Get-Credential) 
-#        UseSsl = $true 
-#    } 
-# 
-#    Send-MailMessage @params
-#}
-#
