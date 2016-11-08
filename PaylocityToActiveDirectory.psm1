@@ -139,7 +139,7 @@ Function Get-StoreEmployeesWhoDontGetADAccounts {
 
 Function Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory {
     $PaylocityTerminatedEmployee = Get-PaylocityEmployees -Status T
-    $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter {Enabled -eq $true}
+    $ADUsers = Get-ADUser -Properties Employeeid, Title, MemberOf -Filter {Enabled -eq $true} | where {-not ($_.MemberOf -Match "CN=Contractor,")}
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = $PaylocityTerminatedEmployee | where EmployeeID -In $ADUsers.employeeid
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
 }
@@ -286,8 +286,10 @@ function Set-ADUserDepartmentBasedOnPaylocityDepartment {
 
 Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
+    Import-Module -Force TrackITWebAPIPowerShell
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
     foreach ($Employee in $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory) {
+        $Employee | Get-ADUserByEmployeeID | Disable-ADAccount
         $Response = New-TrackITWorkOrder -Summary "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -Type "Technical Services" -AssignedTechnician "" -RequestorName "Chris Magnuson"
         Add-TrackITWorkOrderNote -WorkOrderNumber $Response.data.data.Id -FullText "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD"
         Edit-TrackITWorkOrder -WorkOrderNumber $Response.data.data.Id -AssignedTechnician ""
