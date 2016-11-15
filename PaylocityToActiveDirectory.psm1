@@ -146,7 +146,7 @@ Function Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory {
 
 Function Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
     $DepartmentsOU = Get-ADOrganizationalUnit -Filter * | where name -Match "Departments"
-    $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department, LastLogonDate, MemberOf | 
+    $ADUsersWithoutEmployeeID = Get-ADUser -SearchBase $DepartmentsOU.DistinguishedName -Filter * -Properties EmployeeID, Manager, Department, LastLogonDate, MemberOf, Created | 
     where {-not $_.EmployeeId} |
     where DistinguishedName -NotMatch "OU=Store Accounts,OU=Users,OU=Stores,OU=Departments" |
     where {-not ($_.MemberOf -Match "CN=Contractor,")} |
