@@ -230,7 +230,9 @@ Function Invoke-MatchPaylocityEmployeeWithADUser {
             $ADUserMatchingSurname = Get-aduser -Filter {Surname -eq $Surname -and Employeeid -notlike "*"} -Properties employeeid, Title, Department, Manager
             if ($ADUserMatchingSurname)  {
                 $Employee | Write-VerboseAdvanced -Verbose:$true
-                $SelectedADUser = if($ADUserMatchingSurname.count) {$ADUserMatchingSurname | Out-GridView -PassThru} else {
+                $SelectedADUser = if($ADUserMatchingSurname.count) {
+                    $ADUserMatchingSurname | Out-GridView -PassThru
+                } else {
                     $ADUserMatchingSurname | Write-VerboseAdvanced -PassThrough -Verbose
                 }
                 if ($SelectedADUser) { $SelectedADUser | Set-Aduser -EmployeeID $Employee.EmployeeID -Confirm }
