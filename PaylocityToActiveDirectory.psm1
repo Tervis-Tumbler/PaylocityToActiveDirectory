@@ -292,9 +292,7 @@ Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInA
     Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
     foreach ($Employee in $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory) {
         $Employee | Get-ADUserByEmployeeID | Disable-ADAccount
-        $Response = New-TrackITWorkOrder -Summary "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -Type "Technical Services" -AssignedTechnician "" -RequestorName "Chris Magnuson"
-        Add-TrackITWorkOrderNote -WorkOrderNumber $Response.data.data.Id -FullText "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD"
-        Edit-TrackITWorkOrder -WorkOrderNumber $Response.data.data.Id -AssignedTechnician ""
+        New-KanbanizeTask -Title "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -BoardID 29
     }
 }
 
