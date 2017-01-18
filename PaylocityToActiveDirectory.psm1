@@ -288,11 +288,9 @@ function Set-ADUserDepartmentBasedOnPaylocityDepartment {
 
 Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
-    Import-Module -Force TrackITWebAPIPowerShell
-    Invoke-TrackITLogin -Username helpdeskbot -Pwd helpdeskbot
     foreach ($Employee in $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory) {
         $Employee | Get-ADUserByEmployeeID | Disable-ADAccount
-        New-KanbanizeTask -Title "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -BoardID 29
+        New-KanbanizeTask -Title "EmployeeID $($Employee.EmployeeID) Name $($Employee.GivenName) $($Employee.SurName), terminated in Paylocity but not AD" -BoardID 29 -Column "Requested"
     }
 }
 
