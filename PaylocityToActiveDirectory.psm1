@@ -3,18 +3,18 @@
 function Install-PaylocityToActiveDirectory {
     param (
         $PathToScriptForScheduledTask = $PSScriptRoot,
-        [Parameter(Mandatory)]$ScheduledTaskUserPassword,
         [Parameter(Mandatory)]$PathToPaylocityDataExport,
         [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath
     )
-    
+    $ScheduledTasksCredential = Get-PasswordstateCredential -PasswordID 259
+
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
-        -ScheduledTaskUserPassword $ScheduledTaskUserPassword `
+        -Credential $ScheduledTasksCredential `
         -ScheduledTaskFunctionName "Send-EmailRequestingPaylocityReportBeRun" `
         -RepetitionInterval OnceAWeekMondayMorning
 
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
-        -ScheduledTaskUserPassword $ScheduledTaskUserPassword `
+        -Credential $ScheduledTasksCredential `
         -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
         -RepetitionInterval OnceAWeekTuesdayMorning
 
