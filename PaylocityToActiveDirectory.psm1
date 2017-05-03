@@ -4,28 +4,32 @@ function Install-PaylocityToActiveDirectory {
     param (
         $PathToScriptForScheduledTask = $PSScriptRoot,
         [Parameter(Mandatory)]$PathToPaylocityDataExport,
-        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath
+        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath,
+        [Parameter(Mandatory)]$ComputerName
     )
     $ScheduledTasksCredential = Get-PasswordstateCredential -PasswordID 259
 
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
         -Credential $ScheduledTasksCredential `
         -ScheduledTaskFunctionName "Send-EmailRequestingPaylocityReportBeRun" `
-        -RepetitionInterval OnceAWeekMondayMorning
+        -RepetitionInterval OnceAWeekMondayMorning `
+        -ComputerName $ComputerName
 
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
         -Credential $ScheduledTasksCredential `
         -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
-        -RepetitionInterval OnceAWeekTuesdayMorning
+        -RepetitionInterval OnceAWeekTuesdayMorning `
+        -ComputerName $ComputerName
 
     Install-TervisPaylocity -PathToPaylocityDataExport $PathToPaylocityDataExport -PaylocityDepartmentsWithNiceNamesJsonPath $PaylocityDepartmentsWithNiceNamesJsonPath
 }
 
 function Uninstall-PaylocityToActiveDirectory {
     param (
-        $PathToScriptForScheduledTask = $PSScriptRoot
+        $PathToScriptForScheduledTask = $PSScriptRoot,
+        [Parameter(Mandatory)]$ComputerName
     )
-    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
+    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ComputerName $ComputerName -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
 }
 
 Function Invoke-DeployPaylocityToActiveDirectory {
