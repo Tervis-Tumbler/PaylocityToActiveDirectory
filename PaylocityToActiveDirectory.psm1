@@ -50,11 +50,11 @@ Function Invoke-DeployPaylocityToActiveDirectory {
             choco install git -y
         }
         
-        "PaylocityToActiveDirectory","TervisPowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
             Git clone "https://github.com/Tervis-Tumbler/$_"
         }
 
-        "PaylocityToActiveDirectory","TervisPowerShellApplication", "TervisMailMessage", "PasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
             Write-host $_
             Push-Location -Path ".\$_"
             git pull
