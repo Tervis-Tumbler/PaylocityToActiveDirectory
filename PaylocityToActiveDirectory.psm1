@@ -1,4 +1,4 @@
-﻿#Requires -Modules PowerShellApplication, TervisMailMessage, PasswordStatePowerShell, StringPowerShell, TervisMES, TervisPaylocity
+﻿#Requires -Modules PowerShellApplication, TervisMailMessage, TervisPasswordStatePowerShell, StringPowerShell, TervisMES, TervisPaylocity
 
 function Install-PaylocityToActiveDirectory {
     param (
