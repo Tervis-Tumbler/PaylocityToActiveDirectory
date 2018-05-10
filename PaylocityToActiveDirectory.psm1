@@ -171,26 +171,6 @@ function Invoke-PaylocityToActiveDirectory {
     Invoke-PaylocityDepartmentMemberShipToRoleSync
 }
 
-function Import-PaylocityOrganizationStructureIntoActiveDirectory {
-    [CmdletBinding()]
-    param ()
-    $PaylocityRecords = Get-PaylocityEmployees -Status A
-    $ADUsers = Get-ADUser -Properties EmployeeID,Manager -Filter *
-    $PaylocityRecordsWithADUserAccount = $PaylocityRecords | where EmployeeID -In $ADUsers.employeeid
-
-    foreach ($PaylocityRecord in $PaylocityRecordsWithADUserAccount) {
-        $EmployeeADUser = $ADUsers | where employeeid -EQ $PaylocityRecord.EmployeeID
-        if ($PaylocityRecord.ManagerEmployeeID) {
-            $ManagerADUser = $ADUsers | where employeeid -EQ $PaylocityRecord.ManagerEmployeeID
-            if ($ManagerADUser -and $EmployeeADUser.Manager -ne $ManagerADUser.DistinguishedName) {
-                Write-Verbose "Employee $($EmployeeADUser.samaccountname)"
-                Write-Verbose "Manager $($ManagerADUser.SamAccountName)"
-                set-aduser $EmployeeADUser.samaccountname -Manager $ManagerADUser
-            }
-        }
-    }
-}
-
 Function Get-ADUsersWithGivenNamesThatDontMatchPaylocity {
     $PaylocityRecords = Get-PaylocityEmployees
     $ADUsers = Get-ADUser -Properties employeeid -Filter *
@@ -250,17 +230,6 @@ function Backup-ActiveDirectoryUserData {
     $ActiveDirectoryUsersExport | ConvertTo-Json | Out-File ~\ActiveDirectoryBackup.json
 }
 
-function Import-PaylocityEmployeeTitleIntoActiveDirectory {
-    $PaylocityRecords = Get-PaylocityEmployees
-    $ADUsers = Get-ADUser -Properties Employeeid, Title -Filter *
-    $PaylocityRecordsWithADUserAccount = $PaylocityRecords | where EmployeeID -In $ADUsers.employeeid
-
-    foreach ($PaylocityRecord in $PaylocityRecordsWithADUserAccount) {
-        $EmployeeADUser = $ADUsers | where employeeid -EQ $PaylocityRecord.EmployeeID
-        #Unfinished
-    }    
-}
-
 Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
     $PaylocityTerminatedEmployee = Get-PaylocityEmployees -Status T
 
@@ -273,19 +242,6 @@ Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
             $Employee | Write-VerboseAdvanced -Verbose:$true
             $Aduser | Write-VerboseAdvanced -Verbose:$true
             $ADUser | Remove-ADUser -Confirm
-        }
-    }
-}
-
-function Set-ADUserDepartmentBasedOnPaylocityDepartment {
-    $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid, Department, Division
-    $PaylocityRecords = Get-PaylocityEmployees
-    foreach ($ADUser in $ADUsersWithEmployeeIDs) {
-        $PaylocityRecord = $PaylocityRecords | where EmployeeID -EQ $ADUser.EmployeeID
-        $DepartmentNiceName = Get-DepartmentNiceName -PaylocityDepartmentName $PaylocityRecord.DepartmentName
-        if (-not $DepartmentNiceName) { Throw "No DepartmentNiceName returned by Get-DepartmentNiceName" }
-        if ($ADUser.Department -ne $DepartmentNiceName) {
-            $ADUser | Set-ADUser -Department $DepartmentNiceName -Division $ADUser.Department
         }
     }
 }
@@ -343,12 +299,65 @@ function Test-DuplicateEmployeeID {
 
 
 function Sync-PaylocityPropertiesToActiveDirectory {
-    $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee
-    foreach ($ADUser in $ADUsers) {
+    $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager |
+    Where-Object { $_.PaylocityEmployee }
+
+    $ADUsers | Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle
+    $ADUsers | Set-ADUserDepartmentBasedOnPaylocityDepartment
+    $ADUsers | Set-ADUserManagerBasedOnPaylocityManager -ADUsers $ADUsers
+}
+
+function Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$ADUser
+    )
+    process {
         $PaylocityJobtitle = $ADUser.PaylocityEmployee.JobTitle
         if ($ADUser.Title -ne $PaylocityJobtitle) {
-            "Changing $($ADUser.Name) current title $($ADUser.Title) to $PaylocityJobtitle"
+            Write-Verbose "Changing $($ADUser.Name) current title $($ADUser.Title) to $PaylocityJobtitle"
             $ADUser | Set-ADUser -Title $PaylocityJobtitle
+        }
+    }
+}
+
+function Set-ADUserDepartmentBasedOnPaylocityDepartment {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$ADUser
+    )
+    process {
+        $DepartmentNiceName = $ADUser.PaylocityEmployee.DepartmentNiceName
+        if (-not $DepartmentNiceName) { Throw "No DepartmentNiceName returned by Get-DepartmentNiceName" }
+        if ($ADUser.Department -ne $DepartmentNiceName) {
+            Write-Verbose "Changing $($ADUser.Name) current department $($ADUser.Department) to $DepartmentNiceName"
+            $ADUser | Set-ADUser -Department $DepartmentNiceName -Division $ADUser.Department
+        }
+    }
+}
+
+function Set-ADUserManagerBasedOnPaylocityManager {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$ADUser,
+        [Parameter(Mandatory)]$ADUsers
+    )
+    begin {
+        $ADUsersEmployeeIDHash = @{}
+        $ADUsers |
+        ForEach-Object -Process {
+            $ADUsersEmployeeIDHash.Add($_.EmployeeID, $_)
+        }
+    }
+    process {
+        $EmployeeADUser = $ADUser
+        $ManagerEmployeeID = $EmployeeADUser.PaylocityEmployee.ManagerEmployeeID
+        if ($ManagerEmployeeID) {            
+            $ManagerADUser = $ADUsersEmployeeIDHash[$ManagerEmployeeID]
+            if ($ManagerADUser -and $EmployeeADUser.Manager -ne $ManagerADUser.DistinguishedName) {
+                Write-Verbose "Employee $($EmployeeADUser.samaccountname) manager being set to $($ManagerADUser.SamAccountName)"
+                $EmployeeADUser | Set-ADUser -Manager $ManagerADUser
+            }
         }
     }
 }
