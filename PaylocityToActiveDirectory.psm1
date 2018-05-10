@@ -328,64 +328,6 @@ Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
     }
 }
 
-Function Send-EmailRequestingPaylocityReportBeRun {
-    $HTMLBody = @"
-<html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns:m="http://schemas.microsoft.com/office/2004/12/omml" xmlns="http://www.w3.org/TR/REC-html40"><head><META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=us-ascii"><meta name=Generator content="Microsoft Word 15 (filtered medium)"><!--[if !mso]><style>v\:* {behavior:url(#default#VML);}
-o\:* {behavior:url(#default#VML);}
-w\:* {behavior:url(#default#VML);}
-.shape {behavior:url(#default#VML);}
-</style><![endif]--><style><!--
-/* Font Definitions */
-@font-face
-	{font-family:"Cambria Math";
-	panose-1:2 4 5 3 5 4 6 3 2 4;}
-@font-face
-	{font-family:Calibri;
-	panose-1:2 15 5 2 2 2 4 3 2 4;}
-@font-face
-	{font-family:Verdana;
-	panose-1:2 11 6 4 3 5 4 4 2 4;}
-/* Style Definitions */
-p.MsoNormal, li.MsoNormal, div.MsoNormal
-	{margin:0in;
-	margin-bottom:.0001pt;
-	font-size:10.0pt;
-	font-family:"Verdana",sans-serif;}
-a:link, span.MsoHyperlink
-	{mso-style-priority:99;
-	color:#0563C1;
-	text-decoration:underline;}
-a:visited, span.MsoHyperlinkFollowed
-	{mso-style-priority:99;
-	color:#954F72;
-	text-decoration:underline;}
-span.EmailStyle17
-	{mso-style-type:personal-compose;
-	font-family:"Verdana",sans-serif;
-	color:windowtext;
-	font-weight:normal;
-	font-style:normal;
-	text-decoration:none none;}
-.MsoChpDefault
-	{mso-style-type:export-only;
-	font-size:10.0pt;
-	font-family:"Verdana",sans-serif;}
-@page WordSection1
-	{size:8.5in 11.0in;
-	margin:1.0in 1.0in 1.0in 1.0in;}
-div.WordSection1
-	{page:WordSection1;}
---></style><!--[if gte mso 9]><xml>
-<o:shapedefaults v:ext="edit" spidmax="1026" />
-</xml><![endif]--><!--[if gte mso 9]><xml>
-<o:shapelayout v:ext="edit">
-<o:idmap v:ext="edit" data="1" />
-</o:shapelayout></xml><![endif]--></head><body lang=EN-US link="#0563C1" vlink="#954F72"><div class=WordSection1><p class=MsoNormal>Alicia,<o:p></o:p></p><p class=MsoNormal><o:p>&nbsp;</o:p></p><p class=MsoNormal>Can you please run the paylocity report we used before and save the results as xml into <a href="file://tervis.prv/departments/HR/HR/Paylocity%20Data%20Export">this folder</a>?<o:p></o:p></p><p class=MsoNormal><o:p>&nbsp;</o:p></p><p class=MsoNormal>Thanks,<o:p></o:p></p><table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0 style='margin-left:5.4pt;border-collapse:collapse'><tr style='height:102.65pt'><td width=205 valign=top style='width:153.9pt;padding:0in 5.4pt 0in 5.4pt;height:102.65pt'><table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0 width=485 style='width:363.65pt;border-collapse:collapse'><tr style='height:29.95pt'><td width=447 valign=top style='width:335.45pt;padding:0in 0in 0in 0in;height:29.95pt'><p class=MsoNormal style='line-height:115%'><span style='font-family:"Calibri",sans-serif'><o:p>&nbsp;</o:p></span></p><p class=MsoNormal style='line-height:115%'>Chris Magnuson<o:p></o:p></p><p class=MsoNormal style='line-height:115%'>Technical Services Manager<o:p></o:p></p><p class=MsoNormal style='line-height:115%'>d: 941.441.4491<o:p></o:p></p><p class=MsoNormal style='line-height:115%'><span style='font-family:"Calibri",sans-serif'><img border=0 id="Picture_x0020_25" src="https://sharepoint.tervis.com/SiteCollectionImages/NEW_Logo.jpg" alt="Tervis_Color_Logo_URL"><o:p></o:p></span></p><p class=MsoNormal style='margin-left:4.5pt;line-height:115%'><span style='font-family:"Calibri",sans-serif'><o:p>&nbsp;</o:p></span></p></td><td width=38 valign=top style='width:28.2pt;padding:0in 5.4pt 0in 5.4pt;height:29.95pt'><p class=MsoNormal align=center style='margin-left:-23.4pt;text-align:center;line-height:115%'><span style='font-size:11.0pt;line-height:115%;font-family:"Calibri",sans-serif'><o:p>&nbsp;</o:p></span></p></td></tr></table></td><td width=240 valign=top style='width:2.5in;padding:0in 5.4pt 0in 5.4pt;height:102.65pt'><p class=MsoNormal align=center style='margin-left:-23.4pt;text-align:center;line-height:115%'><span style='font-size:11.0pt;line-height:115%'><o:p>&nbsp;</o:p></span></p></td></tr></table><p class=MsoNormal><span style='font-size:11.0pt;font-family:"Calibri",sans-serif'><o:p>&nbsp;</o:p></span></p><p class=MsoNormal><o:p>&nbsp;</o:p></p></div></body></html>
-"@
-
-    Send-TervisMailMessage -To alarkins@tervis.com -Bcc cmagnuson@tervis.com -Subject "Export of data from Paylocity" -Body $HTMLBody -From "Chris Magnuson <cmagnuson@tervis.com>" -BodyAsHtml
-}
-
 function Test-ADUsersWithDuplicateEmployeeIDs {
     $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid
     $ADUsersWithEmployeeIDs | group employeeid | where count -GT 1
@@ -397,4 +339,16 @@ function Test-DuplicateEmployeeID {
 
     $PaylocityRecords | Group-Object EmployeeID | where count -gt 1
     $ADUsers | Group-Object employeeid | where count -gt 1 | where name -NE "" | select -ExpandProperty group
+}
+
+
+function Sync-PaylocityPropertiesToActiveDirectory {
+    $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee
+    foreach ($ADUser in $ADUsers) {
+        $PaylocityJobtitle = $ADUser.PaylocityEmployee.JobTitle
+        if ($ADUser.Title -ne $PaylocityJobtitle) {
+            "Changing $($ADUser.Name) current title $($ADUser.Title) to $PaylocityJobtitle"
+            $ADUser | Set-ADUser -Title $PaylocityJobtitle
+        }
+    }
 }

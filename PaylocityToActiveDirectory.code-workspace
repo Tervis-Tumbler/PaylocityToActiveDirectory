@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "..\\TervisPaylocity"
+		},
+		{
+			"path": "..\\TervisActiveDirectory"
+		}
+	],
+	"settings": {}
+}
