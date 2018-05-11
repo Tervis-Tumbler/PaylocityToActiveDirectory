@@ -6,11 +6,11 @@
     $InstallPowerShellApplicationParameters = @{
         ModuleName = "PaylocityToActiveDirectory"
         DependentTervisModuleNames = "TervisPaylocity",
-        "TervisActiveDirectory", 
-        "PasswordstatePowerShell",
-        "WebServicesPowerShellProxyBuilder",
-        "StringPowerShell",
-        "TervisMicrosoft.PowerShell.Utility"
+            "TervisActiveDirectory", 
+            "PasswordstatePowerShell",
+            "WebServicesPowerShellProxyBuilder",
+            "StringPowerShell",
+            "TervisMicrosoft.PowerShell.Utility"
 
         ScheduledScriptCommandsString = "Sync-PaylocityPropertiesToActiveDirectory"
         ScheduledTasksCredential = (Get-PasswordstatePassword -AsCredential -ID 259)
