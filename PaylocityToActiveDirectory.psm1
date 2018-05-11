@@ -165,9 +165,6 @@ Function Invoke-ReviewActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmploye
 }
 
 function Invoke-PaylocityToActiveDirectory {
-    Import-PaylocityOrganizationStructureIntoActiveDirectory
-    Set-ADUserDepartmentBasedOnPaylocityDepartment
-    Invoke-EnsurePaylocityDepartmentsHaveRole
     Invoke-PaylocityDepartmentMemberShipToRoleSync
 }
 
@@ -255,32 +252,25 @@ Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInA
 }
 
 Function Invoke-EnsurePaylocityDepartmentsHaveRole {
-    $PaylocityDepartmentNamesAndCodes = Get-PaylocityDepartmentNamesAndCodes
+    $PaylocityDepartments = Get-PaylocityDepartment
 
-    ForEach ($PaylocityDepartmentNameAndCode in $PaylocityDepartmentNamesAndCodes) {
-        $DepartmentNiceName = Get-DepartmentNiceName -PaylocityDepartmentName $PaylocityDepartmentNameAndCode.DepartmentName
-        $ExistingADGroupForPaylocityDepartment = Get-ADGroup -Identity "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentCode)" -Properties Description
-        
-        if ($ExistingADGroupForPaylocityDepartment) {
-            if ($ExistingADGroupForPaylocityDepartment.Name -ne "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)" ) {
-               $ExistingADGroupForPaylocityDepartment | Rename-ADObject -NewName "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)"
-            }
+    ForEach ($PaylocityDepartment in $PaylocityDepartments) {
+        $RoleDescription = "Role Paylocity $($PaylocityDepartment.NiceName)"
 
-            if ($ExistingADGroupForPaylocityDepartment.Description -ne "Role Paylocity $DepartmentNiceName") {
-                $ExistingADGroupForPaylocityDepartment | Set-ADGroup -Description "Role Paylocity $DepartmentNiceName"
-            }
-        } else {
-            New-ADGroup -Path "OU=Paylocity,OU=Company - Security Groups,DC=tervis,DC=prv" -Name "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentName)" -Description "Role Paylocity $DepartmentNiceName" -GroupCategory Security -GroupScope Universal -SamAccountName "Role_Paylocity$($PaylocityDepartmentNameAndCode.DepartmentCode)"
+        $ADGroup = Try {
+            Get-ADGroup -Identity $PaylocityDepartment.RoleSAMAccountName -Properties Description
+        } catch {
+            $ADOrganizationalUnit = Get-ADOrganizationalUnit -Filter { Name -eq "Paylocity" }
+            New-ADGroup -Path $ADOrganizationalUnit -Name $PaylocityDepartment.RoleName -Description $RoleDescription -GroupCategory Security -GroupScope Universal -SamAccountName $PaylocityDepartment.RoleSAMAccountName
         }
-    }
-}
-
-Function Invoke-PaylocityDepartmentMemberShipToRoleSync {
-    $ADUsers = Get-PaylocityADUser -Status A | 
-    where {-not ($_.MemberOf -Match $_.PaylocityDepartmentRoleName) }
-
-    foreach ($ADUser in $ADUsers) {
-        Add-ADGroupMember -Identity $ADUser.PaylocityDepartmentRoleSAMAccountName -Members $ADUser
+        
+        if ($ADGroup.Name -ne $PaylocityDepartment.RoleName ) {
+            $ADGroup | Rename-ADObject -NewName $PaylocityDepartment.RoleName
+        }
+        
+        if ($ADGroup.Description -ne $RoleDescription) {
+            $ADGroup | Set-ADGroup -Description $RoleDescription
+        }
     }
 }
 
@@ -299,12 +289,15 @@ function Test-DuplicateEmployeeID {
 
 
 function Sync-PaylocityPropertiesToActiveDirectory {
-    $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager |
+    $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager,MemberOf |
     Where-Object { $_.PaylocityEmployee }
 
     $ADUsers | Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle
     $ADUsers | Set-ADUserDepartmentBasedOnPaylocityDepartment
     $ADUsers | Set-ADUserManagerBasedOnPaylocityManager -ADUsers $ADUsers
+
+    Invoke-EnsurePaylocityDepartmentsHaveRole
+    $ADUsers | Add-ADUserToPaylocityDepartmentRole
 }
 
 function Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle {
@@ -355,9 +348,21 @@ function Set-ADUserManagerBasedOnPaylocityManager {
         if ($ManagerEmployeeID) {            
             $ManagerADUser = $ADUsersEmployeeIDHash[$ManagerEmployeeID]
             if ($ManagerADUser -and $EmployeeADUser.Manager -ne $ManagerADUser.DistinguishedName) {
-                Write-Verbose "Employee $($EmployeeADUser.samaccountname) manager being set to $($ManagerADUser.SamAccountName)"
+                Write-Verbose "$($EmployeeADUser.samaccountname) manager being set to $($ManagerADUser.SamAccountName)"
                 $EmployeeADUser | Set-ADUser -Manager $ManagerADUser
             }
         }
     }
+}
+
+function Add-ADUserToPaylocityDepartmentRole {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$ADUser
+    )
+    process {
+        if (-not ($ADUser.MemberOf -Match $ADUser.PaylocityEmployee.DepartmentRoleName)) {
+            Add-ADGroupMember -Identity $ADUser.PaylocityEmployee.DepartmentRoleSAMAccountName -Members $ADUser
+        }
+    }    
 }
