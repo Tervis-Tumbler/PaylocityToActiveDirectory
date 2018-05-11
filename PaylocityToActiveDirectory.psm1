@@ -1,69 +1,32 @@
 ﻿function Install-PaylocityToActiveDirectory {
     param (
-        $PathToScriptForScheduledTask = $PSScriptRoot,
-        [Parameter(Mandatory)]$PathToPaylocityDataExport,
-        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath,
         [Parameter(Mandatory)]$ComputerName
     )
-    $ScheduledTasksCredential = Get-PasswordstateCredential -PasswordID 259
     
     $InstallPowerShellApplicationParameters = @{
         ModuleName = "PaylocityToActiveDirectory"
-        DependentTervisModuleNames = "TervisPaylocity", "TervisActiveDirectory"
-        ScheduledScriptCommandsString = ""
+        DependentTervisModuleNames = "TervisPaylocity",
+        "TervisActiveDirectory", 
+        "PasswordstatePowerShell",
+        "WebServicesPowerShellProxyBuilder",
+        "StringPowerShell",
+        "TervisMicrosoft.PowerShell.Utility"
+
+        ScheduledScriptCommandsString = "Sync-PaylocityPropertiesToActiveDirectory"
+        ScheduledTasksCredential = (Get-PasswordstatePassword -AsCredential -ID 259)
+        SchduledTaskName = "Sync-PaylocityPropertiesToActiveDirectory"
+        RepetitionIntervalName = "EveryDayAt6am"
     }
 
     Install-PowerShellApplication -ComputerName $ComputerName @InstallPowerShellApplicationParameters
-
-    Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
-        -Credential $ScheduledTasksCredential `
-        -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory" `
-        -RepetitionInterval OnceAWeekTuesdayMorning `
-        -ComputerName $ComputerName
-
-    Install-TervisPaylocity -PathToPaylocityDataExport $PathToPaylocityDataExport -PaylocityDepartmentsWithNiceNamesJsonPath $PaylocityDepartmentsWithNiceNamesJsonPath
-}
+} 
 
 function Uninstall-PaylocityToActiveDirectory {
     param (
         $PathToScriptForScheduledTask = $PSScriptRoot,
         [Parameter(Mandatory)]$ComputerName
     )
-    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ComputerName $ComputerName -ScheduledTaskFunctionName "Invoke-PaylocityToActiveDirectory"
-}
-
-Function Invoke-DeployPaylocityToActiveDirectory {
-    param (
-        $ComputerName,
-        [Parameter(Mandatory)]$PathToPaylocityDataExport,
-        [Parameter(Mandatory)]$PaylocityDepartmentsWithNiceNamesJsonPath
-    )
-
-    $Credential = Get-PasswordstateCredential -PasswordID 259
-    $ScheduledTaskUserPassword = $Credential.GetNetworkCredential().password
-
-    $Session = New-PSSession -ComputerName $ComputerName -Credential $Credential
-    Invoke-Command -Session $Session -ScriptBlock {
-        Set-Location ($ENV:PSModulepath -split ";")[0]
-        
-        if ((Get-Command "git.exe" -ErrorAction SilentlyContinue) -eq $null) { 
-            choco install git -y
-        }
-        
-        "PaylocityToActiveDirectory","PowerShellApplication", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
-            Git clone "https://github.com/Tervis-Tumbler/$_"
-        }
-
-        "PaylocityToActiveDirectory","PowerShellApplication",  "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
-            Write-host $_
-            Push-Location -Path ".\$_"
-            git pull
-            Pop-Location
-        }
-
-        Install-PaylocityToActiveDirectory -ScheduledTaskUserPassword $ScheduledTaskUserPassword
-    }
-    
+    Uninstall-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask -ComputerName $ComputerName -ScheduledTaskFunctionName "Sync-PaylocityPropertiesToActiveDirectory"
 }
 
 function Get-PaylocityEmployeesWithoutADAccount {
