@@ -1,6 +1,4 @@
-﻿#Requires -Modules PowerShellApplication, TervisMailMessage, TervisPasswordStatePowerShell, StringPowerShell, TervisMES, TervisPaylocity
-
-function Install-PaylocityToActiveDirectory {
+﻿function Install-PaylocityToActiveDirectory {
     param (
         $PathToScriptForScheduledTask = $PSScriptRoot,
         [Parameter(Mandatory)]$PathToPaylocityDataExport,
@@ -8,12 +6,14 @@ function Install-PaylocityToActiveDirectory {
         [Parameter(Mandatory)]$ComputerName
     )
     $ScheduledTasksCredential = Get-PasswordstateCredential -PasswordID 259
+    
+    $InstallPowerShellApplicationParameters = @{
+        ModuleName = "PaylocityToActiveDirectory"
+        DependentTervisModuleNames = "TervisPaylocity", "TervisActiveDirectory"
+        ScheduledScriptCommandsString = ""
+    }
 
-    Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
-        -Credential $ScheduledTasksCredential `
-        -ScheduledTaskFunctionName "Send-EmailRequestingPaylocityReportBeRun" `
-        -RepetitionInterval OnceAWeekMondayMorning `
-        -ComputerName $ComputerName
+    Install-PowerShellApplication -ComputerName $ComputerName @InstallPowerShellApplicationParameters
 
     Install-PowerShellApplicationScheduledTask -PathToScriptForScheduledTask $PathToScriptForScheduledTask `
         -Credential $ScheduledTasksCredential `
@@ -50,11 +50,11 @@ Function Invoke-DeployPaylocityToActiveDirectory {
             choco install git -y
         }
         
-        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+        "PaylocityToActiveDirectory","PowerShellApplication", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
             Git clone "https://github.com/Tervis-Tumbler/$_"
         }
 
-        "PaylocityToActiveDirectory","PowerShellApplication", "TervisMailMessage", "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
+        "PaylocityToActiveDirectory","PowerShellApplication",  "TervisPasswordStatePowerShell", "StringPowerShell", "TervisMES" | % {
             Write-host $_
             Push-Location -Path ".\$_"
             git pull
@@ -321,7 +321,6 @@ Function Invoke-EnsurePaylocityDepartmentsHaveRole {
     }
 }
 
-
 function Add-ADUserToPaylocityDepartmentRole {
     [CmdletBinding()]
     param (
@@ -331,5 +330,6 @@ function Add-ADUserToPaylocityDepartmentRole {
         if (-not ($ADUser.MemberOf -Match $ADUser.PaylocityEmployee.DepartmentRoleName)) {
             Add-ADGroupMember -Identity $ADUser.PaylocityEmployee.DepartmentRoleSAMAccountName -Members $ADUser
         }
-    }    
+    }
 }
+
