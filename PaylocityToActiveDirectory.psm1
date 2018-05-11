@@ -230,6 +230,8 @@ function Test-DuplicateEmployeeID {
 
 
 function Sync-PaylocityPropertiesToActiveDirectory {
+    [CmdletBinding()]
+    param ()
     $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager,MemberOf |
     Where-Object { $_.PaylocityEmployee }
 
