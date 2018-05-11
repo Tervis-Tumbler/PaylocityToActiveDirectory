@@ -66,38 +66,6 @@ Function Invoke-DeployPaylocityToActiveDirectory {
     
 }
 
-Function Get-PaylocityADUser {
-    param(
-        [ValidateSet("A","T")]$Status
-    )
-    $PaylocityRecords = Get-PaylocityEmployees @PSBoundParameters
-    $ADUsers = Get-ADUser -Properties EmployeeID,MemberOf -Filter *
-    $PaylocityADUsers = $ADUsers | where EmployeeID -In $PaylocityRecords.EmployeeID
-    
-    $PaylocityADUsers | % {
-        $_ |
-        Add-Member -Name PaylocityDepartmentCode -MemberType NoteProperty -PassThru -Force -Value (
-            $PaylocityRecords |
-            where EmployeeID -eq $_.EmployeeID |
-            select -ExpandProperty DepartmentCode
-        ) |
-        Add-Member -Name PaylocityDepartmentName -MemberType NoteProperty -PassThru -Force -Value (
-            $PaylocityRecords |
-            where EmployeeID -eq $_.EmployeeID |
-            select -ExpandProperty DepartmentName
-        ) |
-        Add-Member -Name PaylocityDepartmentNiceName -MemberType ScriptProperty -PassThru -Force -Value {
-            Get-DepartmentNiceName -PaylocityDepartmentName $this.PaylocityDepartmentName 
-        } |
-        Add-Member -Name PaylocityDepartmentRoleSAMAccountName -MemberType ScriptProperty -PassThru -Force -Value {
-            "Role_Paylocity$($this.PaylocityDepartmentCode)"
-        } |
-        Add-Member -Name PaylocityDepartmentRoleName -MemberType ScriptProperty -PassThru -Force -Value {
-            "Role_Paylocity$($this.PaylocityDepartmentName)"
-        }
-    }
-}
-
 function Get-PaylocityEmployeesWithoutADAccount {
     param(
         [ValidateSet("A","T")]$Status
@@ -162,10 +130,6 @@ Function Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
 Function Invoke-ReviewActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID {
     Get-ActiveDirectoryUsersWithoutEmployeeIDThatShouldHaveEmployeeID | 
     select -Property * -ExcludeProperty DistinguishedName,ObjectClass,ObjectGUID,EmployeeID,PSShowComputerName,SID | ft
-}
-
-function Invoke-PaylocityToActiveDirectory {
-    Invoke-PaylocityDepartmentMemberShipToRoleSync
 }
 
 Function Get-ADUsersWithGivenNamesThatDontMatchPaylocity {
@@ -251,29 +215,6 @@ Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInA
     }
 }
 
-Function Invoke-EnsurePaylocityDepartmentsHaveRole {
-    $PaylocityDepartments = Get-PaylocityDepartment
-
-    ForEach ($PaylocityDepartment in $PaylocityDepartments) {
-        $RoleDescription = "Role Paylocity $($PaylocityDepartment.NiceName)"
-
-        $ADGroup = Try {
-            Get-ADGroup -Identity $PaylocityDepartment.RoleSAMAccountName -Properties Description
-        } catch {
-            $ADOrganizationalUnit = Get-ADOrganizationalUnit -Filter { Name -eq "Paylocity" }
-            New-ADGroup -Path $ADOrganizationalUnit -Name $PaylocityDepartment.RoleName -Description $RoleDescription -GroupCategory Security -GroupScope Universal -SamAccountName $PaylocityDepartment.RoleSAMAccountName
-        }
-        
-        if ($ADGroup.Name -ne $PaylocityDepartment.RoleName ) {
-            $ADGroup | Rename-ADObject -NewName $PaylocityDepartment.RoleName
-        }
-        
-        if ($ADGroup.Description -ne $RoleDescription) {
-            $ADGroup | Set-ADGroup -Description $RoleDescription
-        }
-    }
-}
-
 function Test-ADUsersWithDuplicateEmployeeIDs {
     $ADUsersWithEmployeeIDs = Get-ADUser -Filter {Employeeid -like "*"} -Properties Employeeid
     $ADUsersWithEmployeeIDs | group employeeid | where count -GT 1
@@ -354,6 +295,30 @@ function Set-ADUserManagerBasedOnPaylocityManager {
         }
     }
 }
+
+Function Invoke-EnsurePaylocityDepartmentsHaveRole {
+    $PaylocityDepartments = Get-PaylocityDepartment
+
+    ForEach ($PaylocityDepartment in $PaylocityDepartments) {
+        $RoleDescription = "Role Paylocity $($PaylocityDepartment.NiceName)"
+
+        $ADGroup = Try {
+            Get-ADGroup -Identity $PaylocityDepartment.RoleSAMAccountName -Properties Description
+        } catch {
+            $ADOrganizationalUnit = Get-ADOrganizationalUnit -Filter { Name -eq "Paylocity" }
+            New-ADGroup -Path $ADOrganizationalUnit -Name $PaylocityDepartment.RoleName -Description $RoleDescription -GroupCategory Security -GroupScope Universal -SamAccountName $PaylocityDepartment.RoleSAMAccountName
+        }
+        
+        if ($ADGroup.Name -ne $PaylocityDepartment.RoleName ) {
+            $ADGroup | Rename-ADObject -NewName $PaylocityDepartment.RoleName
+        }
+        
+        if ($ADGroup.Description -ne $RoleDescription) {
+            $ADGroup | Set-ADGroup -Description $RoleDescription
+        }
+    }
+}
+
 
 function Add-ADUserToPaylocityDepartmentRole {
     [CmdletBinding()]
