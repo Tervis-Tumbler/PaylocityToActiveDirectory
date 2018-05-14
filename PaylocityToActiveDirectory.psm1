@@ -154,23 +154,7 @@ function Backup-ActiveDirectoryUserData {
     $ActiveDirectoryUsersExport | ConvertTo-Json | Out-File ~\ActiveDirectoryBackup.json
 }
 
-Function Remove-PaylocityTerminatedProductionEmployeeStillInActiveDirectory {
-    $PaylocityTerminatedEmployee = Get-PaylocityEmployees -Status T
-
-    foreach ($Employee in $PaylocityTerminatedEmployee) {
-        [string]$Surname = $Employee.Surname
-        [string]$GivenName = $Employee.GivenName
-
-        $ADUser = Get-ADUser -Filter {Enabled -eq $false -and Surname -eq $Surname -and GivenName -eq $GivenName -and Employeeid -notlike "*"} -Properties employeeid, Title, Department, Manager -SearchBase "OU=Users,OU=Production Floor,OU=Operations,OU=Departments,DC=tervis,DC=prv"
-        if ($ADUser -and -not $ADUser.count) {
-            $Employee | Write-VerboseAdvanced -Verbose:$true
-            $Aduser | Write-VerboseAdvanced -Verbose:$true
-            $ADUser | Remove-ADUser -Confirm
-        }
-    }
-}
-
-Function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
+function New-WorkOrderToTerminatePaylocityEmployeeInTerminatedStatusButActiveInActiveDirectory {
     $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory = Get-PaylocityTerminatedEmployeeStillEnabledInActiveDirectory
     foreach ($Employee in $PaylocityTerminatedEmployeeStillEnabledInActiveDirectory) {
         $Employee | Get-ADUserByEmployeeID | Disable-ADAccount
@@ -198,6 +182,7 @@ function Sync-PaylocityPropertiesToActiveDirectory {
     $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager,MemberOf |
     Where-Object { $_.PaylocityEmployee }
 
+    $ADUsers | Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory
     $ADUsers | Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle
     $ADUsers | Set-ADUserDepartmentBasedOnPaylocityDepartment
     $ADUsers | Set-ADUserManagerBasedOnPaylocityManager -ADUsers $ADUsers
@@ -296,3 +281,29 @@ function Add-ADUserToPaylocityDepartmentRole {
     }
 }
 
+function Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,ValueFromPipeline)]$ADUser
+    )
+    begin {
+        $RemovedADUsers = @()
+    }
+    process {
+        if ($ADUser.PaylocityEmployee.Status -eq "T" -and $ADUser.Enabled -eq $true) {
+            $RemovedADUsers += $ADUser
+            Remove-TervisPerson -Identity $ADuser.SamAccountName -ManagerReceivesData -UserWasITEmployee:$($ADUser.PaylocityEmployee.DepartmentNiceName -eq "Information Technology")
+        }
+    }
+    end {
+        $Body = foreach ($ADUser in $RemovedADUsers) {
+            "$($ADUser.Name) $($ADUser.EmployeeID) $($ADUser.PaylocityEmployee.ManagerName): " +
+            "Remove-TervisPerson -Identity $($ADuser.SamAccountName) -ManagerReceivesData -UserWasITEmployee:$($ADUser.PaylocityEmployee.DepartmentNiceName -eq "Information Technology")`r`n"
+        }
+
+        Send-TervisMailMessage -To ITTechnicalServicesTeam@tervis.com -From RemoveTervisPerson@tervis.com -Subject "Remove-TervisPerson has been run for the following ADUsers" -BodyAsHTML @"
+$Body
+
+"@
+    }
+}
