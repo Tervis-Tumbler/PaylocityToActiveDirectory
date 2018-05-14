@@ -181,14 +181,15 @@ function Sync-PaylocityPropertiesToActiveDirectory {
     param ()
     $ADUsers = Get-TervisADUser -Filter {Employeeid -like "*"} -IncludePaylocityEmployee -Properties Department,Division,Manager,MemberOf |
     Where-Object { $_.PaylocityEmployee }
-
-    $ADUsers | Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory
+    
     $ADUsers | Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle
     $ADUsers | Set-ADUserDepartmentBasedOnPaylocityDepartment
     $ADUsers | Set-ADUserManagerBasedOnPaylocityManager -ADUsers $ADUsers
 
     Invoke-EnsurePaylocityDepartmentsHaveRole
     $ADUsers | Add-ADUserToPaylocityDepartmentRole
+
+    $ADUsers | Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory
 }
 
 function Set-ADUserTitleBasedOnPaylocityEmployeeJobTitle {
@@ -290,7 +291,11 @@ function Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory {
         $RemovedADUsers = @()
     }
     process {
-        if ($ADUser.PaylocityEmployee.Status -eq "T" -and $ADUser.Enabled -eq $true) {
+        if (
+            $ADUser.PaylocityEmployee.Status -eq "T" -and 
+            $ADUser.Enabled -eq $true -and 
+            -not ($ADUser.MemberOf -Match "CN=Contractor,")
+        ) {
             $RemovedADUsers += $ADUser
             Remove-TervisPerson -Identity $ADuser.SamAccountName -ManagerReceivesData -UserWasITEmployee:$($ADUser.PaylocityEmployee.DepartmentNiceName -eq "Information Technology")
         }
