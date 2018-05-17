@@ -14,7 +14,7 @@
 
         ScheduledScriptCommandsString = "Sync-PaylocityPropertiesToActiveDirectory"
         ScheduledTasksCredential = (Get-PasswordstatePassword -AsCredential -ID 259)
-        SchduledTaskName = "Sync-PaylocityPropertiesToActiveDirectory"
+        ScheduledTaskName = "Sync-PaylocityPropertiesToActiveDirectory"
         RepetitionIntervalName = "EveryDayAt6am"
     }
 
@@ -306,9 +306,11 @@ function Remove-TervisPersonTerminatedInPaylocityButEnabledInActiveDirectory {
             "Remove-TervisPerson -Identity $($ADuser.SamAccountName) -ManagerReceivesData -UserWasITEmployee:$($ADUser.PaylocityEmployee.DepartmentNiceName -eq "Information Technology")`r`n"
         }
 
-        Send-TervisMailMessage -To ITTechnicalServicesTeam@tervis.com -From RemoveTervisPerson@tervis.com -Subject "Remove-TervisPerson has been run for the following ADUsers" -BodyAsHTML @"
+        if ($Body) {
+            Send-TervisMailMessage -To "TechnicalServices@tervis.com" -From "RemoveTervisPerson@tervis.com" -Subject "Remove-TervisPerson has been run for the following ADUsers" -BodyAsHTML @"
 $Body
 
 "@
+        }
     }
 }
