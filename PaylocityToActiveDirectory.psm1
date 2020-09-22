@@ -213,7 +213,7 @@ function Set-ADUserDepartmentBasedOnPaylocityDepartment {
     )
     process {
         $DepartmentNiceName = $ADUser.PaylocityEmployee.DepartmentNiceName
-        if (-not $DepartmentNiceName) { Throw "No DepartmentNiceName returned by Get-DepartmentNiceName" }
+        if (-not $DepartmentNiceName) { Throw "No DepartmentNiceName returned by Get-DepartmentNiceName for $($ADUser.Name)" }
         if ($ADUser.Department -ne $DepartmentNiceName) {
             Write-Verbose "Changing $($ADUser.Name) current department $($ADUser.Department) to $DepartmentNiceName"
             $ADUser | Set-ADUser -Department $DepartmentNiceName -Division $ADUser.Department
